@@ -4,10 +4,22 @@ import socket
 import sys
 from email.parser import Parser
 from functools import lru_cache
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, urlparse, unquote
 
 MAX_LINE = 64 * 1024
 MAX_HEADERS = 100
+
+content_type_dict = {
+    'txt': 'text/plain',
+    'html': 'text/html',
+    'css': 'text/css',
+    'js': 'text/javascript',
+    'jpg': 'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'png': 'image/png',
+    'gif': 'image/gif',
+    'swf': 'application/x-shockwave-flash',
+}
 
 
 class MyHTTPServer:
@@ -15,13 +27,13 @@ class MyHTTPServer:
         self._host = host
         self._port = port
         self._server_name = server_name
-        self._users = {}
 
     def serve_forever(self):
         serv_sock = socket.socket(
             socket.AF_INET,
             socket.SOCK_STREAM,
-            proto=0)
+            proto=0,
+        )
 
         try:
             serv_sock.bind((self._host, self._port))
@@ -46,7 +58,9 @@ class MyHTTPServer:
             except ConnectionResetError:
                 conn = None
             except Exception as e:
+                print(e)
                 self.send_error(conn, e)
+                break
 
             if req.headers.get('Connection') != 'keep-alive':
                 if conn:
@@ -59,14 +73,20 @@ class MyHTTPServer:
     def parse_request(self, conn):
         rfile = conn.makefile('rb')
         method, target, ver = self.parse_request_line(rfile)
-        headers = self.parse_headers(rfile)
-        host = headers.get('Host')
-        if not host:
-            raise HTTPError(400, 'Bad request',
-                            'Host header is missing')
-        if host not in (self._server_name,
-                        f'{self._server_name}:{self._port}'):
+
+        escaping = target.find('../')
+        if escaping != -1:
             raise HTTPError(404, 'Not found')
+
+        query_pos = target.find('?')
+        if query_pos != -1:
+            print(query_pos)
+            target = target[:query_pos]
+
+        target = unquote(target)
+
+        headers = self.parse_headers(rfile)
+
         return Request(method, target, ver, headers, rfile)
 
     def parse_request_line(self, rfile):
@@ -82,8 +102,7 @@ class MyHTTPServer:
                             'Malformed request line')
 
         method, target, version = words
-        if version != 'HTTP/1.1':
-            raise HTTPError(505, 'HTTP Version Not Supported')
+
         return method, target, version
 
     def parse_headers(self, rfile):
@@ -107,7 +126,7 @@ class MyHTTPServer:
         if req.method != 'HEAD' and req.method != 'GET':
             raise HTTPError(405, 'Method Not Allowed')
 
-        return self.handle_get_requests(req)
+        return self.handle_get_head_requests(req)
 
     def send_response(self, conn, resp):
         wfile = conn.makefile('wb')
@@ -132,7 +151,8 @@ class MyHTTPServer:
             status = err.status
             reason = err.reason
             body = (err.body or err.reason).encode('utf-8')
-        except:
+        except Exception as e:
+            print(e)
             status = 500
             reason = b'Internal Server Error'
             body = b'Internal Server Error'
@@ -141,54 +161,64 @@ class MyHTTPServer:
                         body)
         self.send_response(conn, resp)
 
-
-    def handle_get_requests(self, req):
-        accept = req.headers.get('Accept')
-        body = ''
-
-        print(req.target)
-
-        if 'text/html' in accept:
-            content_type = 'text/html; charset=utf-8'
-            filename = str(req.target)[1:]  # delete '/'
+    def handle_get_head_requests(self, req):
+        filename = str(req.target)[1:]  # delete '/'
+        if filename[len(filename) - 1] == '/':
+            print("directory, not file")
+            filename += 'index.html'
             try:
                 content = open(filename, 'rb')
             except FileNotFoundError as e:
                 print(e)
-                return Response(404, 'Not Found')
+                return Response(403, 'Forbidden', request=req)
+            except NotADirectoryError as e:
+                print(e)
+                return Response(404, 'Not Found', request=req)
 
+        else:
+            try:
+                content = open(filename, 'rb')
+            except FileNotFoundError as e:
+                print(e)
+                return Response(404, 'Not Found', request=req)
+
+        print(filename)
+        file_extension = filename[filename.rfind('.') + 1:]
+        print(file_extension)
+
+        content_type = content_type_dict.get(file_extension)
+        if content_type is None:
+            raise HTTPError(404, 'Not Found', request=req)
+
+        content_data = bytes()
+        print(bytearray(content_data))
+        try:
             content_data = content.read(1024)
-            while content_data:
-                try:
-                    body += content_data.decode("utf-8")
-                except BaseException as e:
-                    print(e)
+            body = bytearray(content_data)
+        except BaseException as e:
+            print(e)
+            Response(500, 'Internal Server Error', request=req)
 
+        while content_data:
+            try:
                 content_data = content.read(1024)
+                body += content_data
                 if not content_data:
                     break
 
-            content.close()
+            except BaseException as e:
+                print(e)
+                Response(500, 'Internal Server Error', request=req)
 
-        elif 'application/json' in accept:
-            content_type = 'application/json; charset=utf-8'
-            body = 'Hello json'
+        content.close()
 
-        else:
-            # https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/406
-            return Response(406, 'Not Acceptable')
-
-        body = body.encode('utf-8')
         headers = [('Content-Type', content_type),
-                   ('Content-Length', len(body)),
-                   ('Server', 'User-Agent'),
-                   ('Date', datetime.date(datetime.now())),
-                   ('Connection', 'close')]  # choose connection type from request
+                   ('Content-Length', len(body))]
 
         if req.method == 'HEAD':
-            body = ''
+            body = bytearray()
 
-        return Response(200, 'OK', headers, body)
+        return Response(200, 'OK', headers, body, request=req)
 
 
 class Request:
@@ -221,7 +251,20 @@ class Request:
 
 
 class Response:
-    def __init__(self, status, reason, headers=None, body=None):
+    def __init__(self, status, reason, headers=None, body=None, request=None):
+        if headers is None:
+            headers = list()
+
+        connection = 'close'
+        if request is not None:
+            connection = request.headers.get('Connection')
+            if connection != 'keep-alive':
+                connection = 'close'
+
+        headers.extend((('Server', 'BUSH'),
+                        ('Date', datetime.date(datetime.now())),
+                        ('Connection', f'{connection}')))
+
         self.status = status
         self.reason = reason
         self.headers = headers
