@@ -1,10 +1,9 @@
-import json
+import threading
 from datetime import datetime
 import socket
 import sys
 from email.parser import Parser
-from functools import lru_cache
-from urllib.parse import parse_qs, urlparse, unquote
+from urllib.parse import unquote
 
 MAX_LINE = 64 * 1024
 MAX_HEADERS = 100
@@ -38,28 +37,33 @@ class MyHTTPServer:
         try:
             serv_sock.bind((self._host, self._port))
             serv_sock.listen()
-
+            c_id = 0
             while True:
                 conn, _ = serv_sock.accept()
                 try:
-                    self.serve_client(conn)
+                    c_id += 1
+                    t = threading.Thread(target=self.serve_client, args=[conn, c_id])
+                    t.start()
                 except Exception as e:
                     print('Client serving failed', e)
         finally:
             serv_sock.close()
 
-    def serve_client(self, conn):
-        print('Client os serving')
+    def serve_client(self, conn, c_id):
+        print(f'Client {c_id} os serving')
         while True:
             try:
                 req = self.parse_request(conn)
+                print('Lol')
                 resp = self.handle_request(req)
                 self.send_response(conn, resp)
+
             except ConnectionResetError:
                 conn = None
             except Exception as e:
                 print(e)
                 self.send_error(conn, e)
+                print(f'Client {c_id} ends')
                 break
 
             if req.headers.get('Connection') != 'keep-alive':
@@ -68,6 +72,7 @@ class MyHTTPServer:
                     req.rfile.close()
                     print('close connection')
                     conn.close()
+                    print(f'Client {c_id} ends')
                     break
 
     def parse_request(self, conn):
@@ -98,10 +103,12 @@ class MyHTTPServer:
         req_line = str(raw, 'iso-8859-1')
         words = req_line.split()
         if len(words) != 3:
+            print(words)
             raise HTTPError(400, 'Bad request',
                             'Malformed request line')
 
         method, target, version = words
+        print(target)
 
         return method, target, version
 
@@ -162,7 +169,11 @@ class MyHTTPServer:
         self.send_response(conn, resp)
 
     def handle_get_head_requests(self, req):
-        filename = str(req.target)[1:]  # delete '/'
+        filename = ''
+        if req.target == '/':
+            filename = 'index.html'
+        if req.target[0] == '/' and len(req.target) > 1:
+            filename = str(req.target)[1:]  # delete '/'
         if filename[len(filename) - 1] == '/':
             print("directory, not file")
             filename += 'index.html'
@@ -228,20 +239,6 @@ class Request:
         self.version = version
         self.headers = headers
         self.rfile = rfile
-
-    @property
-    def path(self):
-        return self.url.path
-
-    @property
-    @lru_cache(maxsize=None)
-    def query(self):
-        return parse_qs(self.url.query)
-
-    @property
-    @lru_cache(maxsize=None)
-    def url(self):
-        return urlparse(self.target)
 
     def body(self):
         size = self.headers.get('Content-Length')
