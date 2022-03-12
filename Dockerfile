@@ -1,14 +1,10 @@
-FROM python:3.8-slim
+FROM python:3.8
 
-RUN mkdir /var/www
-RUN mkdir /var/www/html
+COPY . /app
+COPY . /var/www
 
-COPY httpd.conf /etc
-COPY httptest /var/www/html
+WORKDIR /app
 
-WORKDIR /usr/src/app
-
-COPY . /usr/src/app
 EXPOSE 80
 
-CMD ["python3", "main.py"]
+CMD python3 main.py

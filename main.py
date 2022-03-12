@@ -277,9 +277,9 @@ class HTTPError(Exception):
 
 
 if __name__ == '__main__':
-    host = '0.0.0.0'
-    port = 80
-    name = 'highload'
+    host = sys.argv[1]
+    port = int(sys.argv[2])
+    name = sys.argv[3]
 
     serv = MyHTTPServer(host, port, name)
     try:
