@@ -21,6 +21,95 @@ content_type_dict = {
 }
 
 
+def send_response(conn, resp):
+    wfile = conn.makefile('wb')
+    status_line = f'HTTP/1.1 {resp.status} {resp.reason}\r\n'
+    wfile.write(status_line.encode('iso-8859-1'))
+
+    if resp.headers:
+        for (key, value) in resp.headers:
+            header_line = f'{key}: {value}\r\n'
+            wfile.write(header_line.encode('iso-8859-1'))
+
+    wfile.write(b'\r\n')
+
+    if resp.body:
+        wfile.write(resp.body)
+
+    wfile.flush()
+    wfile.close()
+
+
+def send_error(conn, err):
+    try:
+        status = err.status
+        reason = err.reason
+        body = (err.body or err.reason).encode('utf-8')
+    except Exception as e:
+        print(e)
+        status = 500
+        reason = b'Internal Server Error'
+        body = b'Internal Server Error'
+    resp = Response(status, reason,
+                    [('Content-Length', len(body))],
+                    body)
+    send_response(conn, resp)
+
+
+def parse_request_line(rfile):
+    raw = rfile.readline(MAX_LINE + 1)
+    if len(raw) > MAX_LINE:
+        raise HTTPError(400, 'Bad request',
+                        'Request line is too long')
+
+    req_line = str(raw, 'iso-8859-1')
+    words = req_line.split()
+    if len(words) != 3:
+        raise HTTPError(400, 'Bad request',
+                        'Malformed request line')
+
+    method, target, version = words
+
+    return method, target, version
+
+
+def parse_headers(rfile):
+    headers = []
+    while True:
+        line = rfile.readline(MAX_LINE + 1)
+        if len(line) > MAX_LINE:
+            raise HTTPError(494, 'Request header too large')
+
+        if line in (b'\r\n', b'\n', b''):
+            break
+
+        headers.append(line)
+        if len(headers) > MAX_HEADERS:
+            raise HTTPError(494, 'Too many headers')
+
+    sheaders = b''.join(headers).decode('iso-8859-1')
+    return Parser().parsestr(sheaders)
+
+
+def parse_request(conn):
+    rfile = conn.makefile('rb')
+    method, target, ver = parse_request_line(rfile)
+
+    escaping = target.find('../')
+    if escaping != -1:
+        raise HTTPError(404, 'Not found')
+
+    query_pos = target.find('?')
+    if query_pos != -1:
+        target = target[:query_pos]
+
+    target = unquote(target)
+
+    headers = parse_headers(rfile)
+
+    return Request(method, target, ver, headers, rfile)
+
+
 class MyHTTPServer:
     def __init__(self, host, port, thread_limit, document_root):
         self.document_root = document_root
@@ -41,7 +130,6 @@ class MyHTTPServer:
             c_id = 0
             while True:
                 conn, _ = serv_sock.accept()
-                print(len(threading.enumerate()))
                 if len(threading.enumerate()) > self.thread_limit:
                     continue
                 try:
@@ -57,15 +145,15 @@ class MyHTTPServer:
         print(f'Client {c_id} serving')
         while True:
             try:
-                req = self.parse_request(conn)
+                req = parse_request(conn)
                 resp = self.handle_request(req)
-                self.send_response(conn, resp)
+                send_response(conn, resp)
 
             except ConnectionResetError:
                 conn = None
             except Exception as e:
                 print(e)
-                self.send_error(conn, e)
+                send_error(conn, e)
                 print(f'Client {c_id} ends')
                 break
 
@@ -78,135 +166,49 @@ class MyHTTPServer:
                     print(f'Client {c_id} ends')
                     break
 
-    def parse_request(self, conn):
-        rfile = conn.makefile('rb')
-        method, target, ver = self.parse_request_line(rfile)
-
-        escaping = target.find('../')
-        if escaping != -1:
-            raise HTTPError(404, 'Not found')
-
-        query_pos = target.find('?')
-        if query_pos != -1:
-            print(query_pos)
-            target = target[:query_pos]
-
-        target = unquote(target)
-
-        headers = self.parse_headers(rfile)
-
-        return Request(method, target, ver, headers, rfile)
-
-    def parse_request_line(self, rfile):
-        raw = rfile.readline(MAX_LINE + 1)
-        if len(raw) > MAX_LINE:
-            raise HTTPError(400, 'Bad request',
-                            'Request line is too long')
-
-        req_line = str(raw, 'iso-8859-1')
-        words = req_line.split()
-        if len(words) != 3:
-            print(words)
-            raise HTTPError(400, 'Bad request',
-                            'Malformed request line')
-
-        method, target, version = words
-        print(target)
-
-        return method, target, version
-
-    def parse_headers(self, rfile):
-        headers = []
-        while True:
-            line = rfile.readline(MAX_LINE + 1)
-            if len(line) > MAX_LINE:
-                raise HTTPError(494, 'Request header too large')
-
-            if line in (b'\r\n', b'\n', b''):
-                break
-
-            headers.append(line)
-            if len(headers) > MAX_HEADERS:
-                raise HTTPError(494, 'Too many headers')
-
-        sheaders = b''.join(headers).decode('iso-8859-1')
-        return Parser().parsestr(sheaders)
-
     def handle_request(self, req):
         if req.method != 'HEAD' and req.method != 'GET':
             raise HTTPError(405, 'Method Not Allowed')
 
         return self.handle_get_head_requests(req)
 
-    def send_response(self, conn, resp):
-        wfile = conn.makefile('wb')
-        status_line = f'HTTP/1.1 {resp.status} {resp.reason}\r\n'
-        wfile.write(status_line.encode('iso-8859-1'))
-
-        if resp.headers:
-            for (key, value) in resp.headers:
-                header_line = f'{key}: {value}\r\n'
-                wfile.write(header_line.encode('iso-8859-1'))
-
-        wfile.write(b'\r\n')
-
-        if resp.body:
-            wfile.write(resp.body)
-
-        wfile.flush()
-        wfile.close()
-
-    def send_error(self, conn, err):
-        try:
-            status = err.status
-            reason = err.reason
-            body = (err.body or err.reason).encode('utf-8')
-        except Exception as e:
-            print(e)
-            status = 500
-            reason = b'Internal Server Error'
-            body = b'Internal Server Error'
-        resp = Response(status, reason,
-                        [('Content-Length', len(body))],
-                        body)
-        self.send_response(conn, resp)
-
     def handle_get_head_requests(self, req):
-        filename = ''
-        if req.target == '/':
-            filename = 'index.html'
-        if req.target[0] == '/' and len(req.target) > 1:
-            filename = str(req.target)[1:]
+        file_extension = ''
+        dot_pos = req.target.rfind('.')
+        if dot_pos != -1:
+            file_extension = (req.target[dot_pos + 1:]).replace('/', '')
 
-        if filename[len(filename) - 1] == '/':
-            print("directory, not file")
-            filename += 'index.html'
-            try:
-                filename = self.document_root + '/' + filename
-                content = open(filename, 'rb')
-            except FileNotFoundError as e:
-                print(e)
-                return Response(403, 'Forbidden', request=req)
-            except NotADirectoryError as e:
-                print(e)
-                return Response(404, 'Not Found', request=req)
+        if file_extension != '' and req.target[len(req.target) - 1] == '/':
+            return Response(404, 'Not Found', request=req)
 
-        else:
-            try:
-                filename = self.document_root + '/' + filename
-                content = open(filename, 'rb')
-            except FileNotFoundError as e:
-                print(e)
-                return Response(404, 'Not Found', request=req)
+        file_path = req.target
+        if file_path[len(file_path) - 1] == '/':
+            file_path += 'index.html'
 
-        file_extension = filename[filename.rfind('.') + 1:]
+        try:
+            file_path = self.document_root + file_path
+            content = open(file_path, 'rb')
+        except FileNotFoundError as e:
+            print(e)
+            if file_extension != '':
+                return Response(404, 'Forbidden', request=req)
+
+            return Response(403, 'Forbidden', request=req)
+
+        except NotADirectoryError as e:
+            print(e)
+
+            return Response(404, 'Not Found', request=req)
+
+        if file_extension == '':
+            file_extension = 'html'
 
         content_type = content_type_dict.get(file_extension)
         if content_type is None:
             return HTTPError(404, 'Not Found', request=req)
 
         content_data = bytes()
-        print(bytearray(content_data))
+
         try:
             content_data = content.read(1024)
             body = bytearray(content_data)
