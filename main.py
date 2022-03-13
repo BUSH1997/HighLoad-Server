@@ -174,10 +174,12 @@ class MyHTTPServer:
             filename = 'index.html'
         if req.target[0] == '/' and len(req.target) > 1:
             filename = str(req.target)[1:]  # delete '/'
+
         if filename[len(filename) - 1] == '/':
             print("directory, not file")
             filename += 'index.html'
             try:
+                filename = '/var/www/html/' + filename
                 content = open(filename, 'rb')
             except FileNotFoundError as e:
                 print(e)
@@ -188,6 +190,7 @@ class MyHTTPServer:
 
         else:
             try:
+                filename = '/var/www/html/' + filename
                 content = open(filename, 'rb')
             except FileNotFoundError as e:
                 print(e)

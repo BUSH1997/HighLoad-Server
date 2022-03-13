@@ -4,7 +4,7 @@ RUN mkdir var/www
 RUN mkdir var/www/html
 
 COPY httpd.conf /etc
-COPY httptest/ /var/www/html
+COPY httptest/ /var/www/html/httptest
 
 WORKDIR /app
 
