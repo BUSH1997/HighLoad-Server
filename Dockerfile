@@ -12,4 +12,4 @@ COPY main.py /app
 
 EXPOSE 80
 
-CMD python3 main.py 0.0.0.0 80 Highload
+CMD python3 main.py 0.0.0.0 80

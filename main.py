@@ -22,12 +22,11 @@ content_type_dict = {
 
 
 class MyHTTPServer:
-    def __init__(self, host, port, server_name, thread_limit, document_root):
+    def __init__(self, host, port, thread_limit, document_root):
         self.document_root = document_root
         self.thread_limit = thread_limit
         self._host = host
         self._port = port
-        self._server_name = server_name
 
     def serve_forever(self):
         serv_sock = socket.socket(
@@ -42,6 +41,9 @@ class MyHTTPServer:
             c_id = 0
             while True:
                 conn, _ = serv_sock.accept()
+                print(len(threading.enumerate()))
+                if len(threading.enumerate()) > self.thread_limit:
+                    continue
                 try:
                     c_id += 1
                     t = threading.Thread(target=self.serve_client, args=[conn, c_id])
@@ -52,11 +54,10 @@ class MyHTTPServer:
             serv_sock.close()
 
     def serve_client(self, conn, c_id):
-        print(f'Client {c_id} os serving')
+        print(f'Client {c_id} serving')
         while True:
             try:
                 req = self.parse_request(conn)
-                print('Lol')
                 resp = self.handle_request(req)
                 self.send_response(conn, resp)
 
@@ -175,13 +176,13 @@ class MyHTTPServer:
         if req.target == '/':
             filename = 'index.html'
         if req.target[0] == '/' and len(req.target) > 1:
-            filename = str(req.target)[1:]  # delete '/'
+            filename = str(req.target)[1:]
 
         if filename[len(filename) - 1] == '/':
             print("directory, not file")
             filename += 'index.html'
             try:
-                filename = '/var/www/html/' + filename
+                filename = self.document_root + '/' + filename
                 content = open(filename, 'rb')
             except FileNotFoundError as e:
                 print(e)
@@ -192,19 +193,17 @@ class MyHTTPServer:
 
         else:
             try:
-                filename = '/var/www/html/' + filename
+                filename = self.document_root + '/' + filename
                 content = open(filename, 'rb')
             except FileNotFoundError as e:
                 print(e)
                 return Response(404, 'Not Found', request=req)
 
-        print(filename)
         file_extension = filename[filename.rfind('.') + 1:]
-        print(file_extension)
 
         content_type = content_type_dict.get(file_extension)
         if content_type is None:
-            raise HTTPError(404, 'Not Found', request=req)
+            return HTTPError(404, 'Not Found', request=req)
 
         content_data = bytes()
         print(bytearray(content_data))
@@ -263,7 +262,7 @@ class Response:
             if connection != 'keep-alive':
                 connection = 'close'
 
-        headers.extend((('Server', 'BUSH'),
+        headers.extend((('Server', 'BUSH1997'),
                         ('Date', datetime.date(datetime.now())),
                         ('Connection', f'{connection}')))
 
@@ -302,11 +301,10 @@ def parse_conf():
 if __name__ == '__main__':
     host = sys.argv[1]
     port = int(sys.argv[2])
-    name = sys.argv[3]
 
     thread_limit, document_root = parse_conf()
 
-    serv = MyHTTPServer(host, port, name, thread_limit, document_root)
+    serv = MyHTTPServer(host, port, thread_limit, document_root)
     try:
         serv.serve_forever()
     except KeyboardInterrupt:
