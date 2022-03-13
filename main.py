@@ -22,7 +22,9 @@ content_type_dict = {
 
 
 class MyHTTPServer:
-    def __init__(self, host, port, server_name):
+    def __init__(self, host, port, server_name, thread_limit, document_root):
+        self.document_root = document_root
+        self.thread_limit = thread_limit
         self._host = host
         self._port = port
         self._server_name = server_name
@@ -279,12 +281,32 @@ class HTTPError(Exception):
         self.body = body
 
 
+def parse_conf():
+    thread_limit = 0
+    document_root = ''
+    try:
+        conf = open('/etc/httpd.conf', 'r')
+        for line in conf:
+            split_line = line.split()
+            if split_line[0] == 'thread_limit':
+                thread_limit = int(split_line[1])
+            if split_line[0] == 'document_root':
+                document_root = split_line[1]
+    except Exception as e:
+        print(e)
+        raise Exception
+
+    return thread_limit, document_root
+
+
 if __name__ == '__main__':
     host = sys.argv[1]
     port = int(sys.argv[2])
     name = sys.argv[3]
 
-    serv = MyHTTPServer(host, port, name)
+    thread_limit, document_root = parse_conf()
+
+    serv = MyHTTPServer(host, port, name, thread_limit, document_root)
     try:
         serv.serve_forever()
     except KeyboardInterrupt:
