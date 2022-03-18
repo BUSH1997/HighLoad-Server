@@ -3,6 +3,7 @@ from datetime import datetime
 import socket
 import sys
 from urllib.parse import unquote
+import os
 
 MAX_LINE = 1024
 MAX_HEADERS = 100
@@ -123,6 +124,21 @@ def parse_request(conn):
     return Request(method, target, ver, headers, rfile)
 
 
+def reap_children(active_children):
+    print(len(active_children), "TOT")
+    if len(active_children) > 8:
+        child_pid = os.wait()
+        print(f'Process #{child_pid} ended')
+        active_children.discard(child_pid[0])
+
+
+def accept_client_conn(serv_sock, cid):
+    client_sock, client_addr = serv_sock.accept()
+    print(f'Client #{cid} connected '
+          f'{client_addr[0]}:{client_addr[1]}')
+    return client_sock
+
+
 class MyHTTPServer:
     def __init__(self, host, port, thread_limit, document_root):
         self.document_root = document_root
@@ -140,15 +156,16 @@ class MyHTTPServer:
         try:
             serv_sock.bind((self._host, self._port))
             serv_sock.listen()
+            active_children = set()
             c_id = 0
             while True:
-                conn, _ = serv_sock.accept()
-                if len(threading.enumerate()) > self.thread_limit:
-                    continue
+                conn = accept_client_conn(serv_sock, c_id)
                 try:
+                    child_pid = self.serve_client(conn, c_id)
+                    print(child_pid, "III")
+                    active_children.add(child_pid)
+                    reap_children(active_children)
                     c_id += 1
-                    t = threading.Thread(target=self.serve_client, args=[conn, c_id])
-                    t.start()
                 except Exception as e:
                     print('Client serving failed', e)
         finally:
@@ -158,25 +175,31 @@ class MyHTTPServer:
         print(f'Client {c_id} serving')
         while True:
             try:
+                child_pid = os.fork()
+                if child_pid:
+                    conn.close()
+                    return child_pid
                 req = parse_request(conn)
                 resp = self.handle_request(req)
                 send_response(conn, resp)
 
             except ConnectionResetError:
-                break
+                conn = None
+                os._exit(0)
             except Exception as e:
                 print(e)
                 send_error(conn, e)
                 print(f'Client {c_id} ends')
+                os._exit(0)
                 break
 
             if req.headers.get('Connection') != 'keep-alive':
                 if conn:
                     req.rfile.close()
-                    req.rfile.close()
                     print('close connection')
                     conn.close()
                     print(f'Client {c_id} ends')
+                    os._exit(0)
                     break
 
     def handle_request(self, req):
@@ -304,7 +327,7 @@ def parse_conf():
     thread_limit = 0
     document_root = ''
     try:
-        conf = open('/etc/httpd.conf', 'r')
+        conf = open('httpd.conf', 'r')
         for line in conf:
             split_line = line.split()
             if split_line[0] == 'thread_limit':
