@@ -2,10 +2,9 @@ import threading
 from datetime import datetime
 import socket
 import sys
-from email.parser import Parser
 from urllib.parse import unquote
 
-MAX_LINE = 64 * 1024
+MAX_LINE = 1024
 MAX_HEADERS = 100
 
 content_type_dict = {
@@ -23,13 +22,13 @@ content_type_dict = {
 
 def send_response(conn, resp):
     wfile = conn.makefile('wb')
-    status_line = f'HTTP/1.1 {resp.status} {resp.reason}\r\n'
-    wfile.write(status_line.encode('iso-8859-1'))
+    status_line = f'{resp.version} {resp.status} {resp.reason}\r\n'
+    wfile.write(status_line.encode('utf-8'))
 
     if resp.headers:
         for (key, value) in resp.headers:
             header_line = f'{key}: {value}\r\n'
-            wfile.write(header_line.encode('iso-8859-1'))
+            wfile.write(header_line.encode('utf-8'))
 
     wfile.write(b'\r\n')
 
@@ -62,11 +61,10 @@ def parse_request_line(rfile):
         raise HTTPError(400, 'Bad request',
                         'Request line is too long')
 
-    req_line = str(raw, 'iso-8859-1')
+    req_line = str(raw, 'utf-8')
     words = req_line.split()
-    if len(words) != 3:
-        raise HTTPError(400, 'Bad request',
-                        'Malformed request line')
+    if len(words) > 3:
+        raise HTTPError(400, 'Bad request', 'Malformed request line')
 
     method, target, version = words
 
@@ -78,7 +76,7 @@ def parse_headers(rfile):
     while True:
         line = rfile.readline(MAX_LINE + 1)
         if len(line) > MAX_LINE:
-            raise HTTPError(494, 'Request header too large')
+            raise HTTPError(494, 'Request header is too large')
 
         if line in (b'\r\n', b'\n', b''):
             break
@@ -87,8 +85,23 @@ def parse_headers(rfile):
         if len(headers) > MAX_HEADERS:
             raise HTTPError(494, 'Too many headers')
 
-    sheaders = b''.join(headers).decode('iso-8859-1')
-    return Parser().parsestr(sheaders)
+    header_dict = {}
+
+    for header in headers:
+        header = header.decode("utf-8")
+
+        try:
+            double_dot_pos = header.find(':')
+        except Exception as e:
+            print(e)
+            raise HTTPError(494, 'Wrong header structure')
+
+        header_name = header[:double_dot_pos]
+        header_value = header[double_dot_pos + 1: len(header)]
+        header_value = header_value.strip(' \t\n\r')
+        header_dict[header_name] = header_value
+
+    return header_dict
 
 
 def parse_request(conn):
@@ -150,7 +163,7 @@ class MyHTTPServer:
                 send_response(conn, resp)
 
             except ConnectionResetError:
-                conn = None
+                break
             except Exception as e:
                 print(e)
                 send_error(conn, e)
@@ -205,10 +218,10 @@ class MyHTTPServer:
 
         content_type = content_type_dict.get(file_extension)
         if content_type is None:
-            return HTTPError(404, 'Not Found', request=req)
+            return HTTPError(404, 'Not Found')
 
         content_data = bytes()
-
+        body = bytearray()
         try:
             content_data = content.read(1024)
             body = bytearray(content_data)
@@ -272,6 +285,11 @@ class Response:
         self.reason = reason
         self.headers = headers
         self.body = body
+
+        if request is not None:
+            self.version = request.version
+        else:
+            self.version = 'HTTP/1.0'
 
 
 class HTTPError(Exception):

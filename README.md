@@ -41,14 +41,14 @@ git clone https://github.com/init/http-test-suite.git
 cd http-test-suite
 
 docker build -t highload https://github.com/BUSH1997/HighLoad-Server.git -f Dockerfile
-docker run -p 40000:80 -t highload --name highload
+docker run -p 40000:80 -t highload
 
 ./httptest.py
 
 ab -n 10000 -c 10 127.0.0.1:40000/httptest/wikipedia_russia.html
 
 docker build -t ng https://github.com/BUSH1997/HighLoad-Server.git -f nginx.Dockerfile
-docker run -p 40001:80 -t ng --name ng
+docker run -p 40001:9090 -t ng
 
 ab -n 10000 -c 10 127.0.0.1:40001/httptest/wikipedia_russia.html
 ```
