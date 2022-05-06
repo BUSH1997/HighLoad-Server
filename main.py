@@ -1,4 +1,3 @@
-import threading
 from datetime import datetime
 import socket
 import sys
