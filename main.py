@@ -13,8 +13,8 @@ def parse_conf():
                 thread_limit = int(split_line[1])
             if split_line[0] == 'document_root':
                 document_root = split_line[1]
-    except Exception as e:
-        print(e)
+
+    except Exception:
         raise Exception
 
     return thread_limit, document_root

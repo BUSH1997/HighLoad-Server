@@ -2,18 +2,18 @@ from datetime import datetime
 
 
 class Request:
-    def __init__(self, method, target, version, headers, rfile):
+    def __init__(self, method, target, version, headers, socket_file):
         self.method = method
         self.target = target
         self.version = version
         self.headers = headers
-        self.rfile = rfile
+        self.socket_file = socket_file
 
     def body(self):
         size = self.headers.get('Content-Length')
         if not size:
             return None
-        return self.rfile.read(size)
+        return self.socket_file.read(size)
 
 
 class Response:

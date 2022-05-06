@@ -37,54 +37,38 @@ class HTTPServer:
             serv_sock.bind((self._host, self._port))
             serv_sock.listen()
             active_children = set()
-            c_id = 0
+
             while True:
                 client_sock, client_addr = serv_sock.accept()
-                print(f'Client #{c_id} connected '
-                      f'{client_addr[0]}:{client_addr[1]}')
-
                 try:
-                    child_pid = self.serve_client(client_sock, c_id)
+                    child_pid = self.serve_client(client_sock)
                     active_children.add(child_pid)
                     kill_children(active_children, self.thread_limit)
-                    c_id += 1
 
-                except Exception as e:
-                    print('Client serving failed', e)
+                except Exception:
+                    pass
         finally:
             serv_sock.close()
 
-    def serve_client(self, conn, c_id):
-        print(f'Client {c_id} serving')
-        while True:
-            try:
-                child_pid = os.fork()
-                if child_pid:
-                    conn.close()
-                    return child_pid
+    def serve_client(self, conn):
+        try:
+            child_pid = os.fork()
+            if child_pid:
+                conn.close()
+                return child_pid
 
-                req = parse_request(conn)
-                resp = self.handle_request(req)
-                send_response(conn, resp)
+            req = parse_request(conn)
+            resp = self.handle_request(req)
+            send_response(conn, resp)
 
-            except ConnectionResetError:
-                conn = None
-                os._exit(0)
-            except Exception as e:
-                print(e)
-                send_error(conn, e)
-                print(f'Client {c_id} ends')
-                os._exit(0)
-                break
+        except Exception as e:
+            send_error(conn, e)
+            conn.close()
+            os._exit(0)
 
-            if req.headers.get('Connection') != 'keep-alive':
-                if conn:
-                    req.rfile.close()
-                    print('close connection')
-                    conn.close()
-                    print(f'Client {c_id} ends')
-                    os._exit(0)
-                    break
+        if conn:
+            conn.close()
+            os._exit(0)
 
     def handle_request(self, req):
         if req.method != 'HEAD' and req.method != 'GET':
@@ -108,16 +92,13 @@ class HTTPServer:
         try:
             file_path = self.document_root + file_path
             content = open(file_path, 'rb')
-        except FileNotFoundError as e:
-            print(e)
+        except FileNotFoundError:
             if file_extension != '':
                 return Response(404, 'Forbidden', request=req)
 
             return Response(403, 'Forbidden', request=req)
 
-        except NotADirectoryError as e:
-            print(e)
-
+        except NotADirectoryError:
             return Response(404, 'Not Found', request=req)
 
         if file_extension == '':
@@ -127,13 +108,10 @@ class HTTPServer:
         if content_type is None:
             return HTTPError(404, 'Not Found')
 
-        content_data = bytes()
-        body = bytearray()
         try:
             content_data = content.read(1024)
             body = bytearray(content_data)
-        except BaseException as e:
-            print(e)
+        except BaseException:
             return Response(500, 'Internal Server Error', request=req)
 
         while content_data:
@@ -143,8 +121,7 @@ class HTTPServer:
                 if not content_data:
                     break
 
-            except BaseException as e:
-                print(e)
+            except BaseException:
                 return Response(500, 'Internal Server Error', request=req)
 
         content.close()

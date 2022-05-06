@@ -41,8 +41,7 @@ def parse_headers(socket_file):
 
         try:
             double_dot_pos = header.find(':')
-        except Exception as e:
-            print(e)
+        except Exception:
             raise HTTPError(494, 'Wrong header structure')
 
         header_name = header[:double_dot_pos]
@@ -56,7 +55,6 @@ def parse_headers(socket_file):
 def parse_request(conn):
     socket_file = conn.makefile('rb')
     method, target, ver = parse_request_line(socket_file)
-    print(target)
 
     escaping = target.find('../')
     if escaping != -1:
