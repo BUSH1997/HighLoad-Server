@@ -9,6 +9,7 @@ COPY httptest/ /var/www/html/httptest
 WORKDIR /app
 
 COPY main.py /app
+COPY server/ /app/server
 
 EXPOSE 80
 

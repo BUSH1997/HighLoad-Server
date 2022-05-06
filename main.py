@@ -6,7 +6,7 @@ def parse_conf():
     thread_limit = 0
     document_root = ''
     try:
-        conf = open('httpd.conf', 'r')
+        conf = open('/etc/httpd.conf', 'r')
         for line in conf:
             split_line = line.split()
             if split_line[0] == 'thread_limit':
